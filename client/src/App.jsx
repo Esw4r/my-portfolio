@@ -1,131 +1,157 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState } from 'react';
 import Draggable from 'react-draggable';
-import { Folder, FileText, Mail, User, Terminal, X } from 'lucide-react';
+import { User, Folder, Mail } from 'lucide-react';
 import './App.css';
 
-// Icon Mapper
-const IconMap = { Folder, File: FileText, Mail, User, Terminal };
+// DATA
+const APPS = [
+  {
+    id: 'bio',
+    title: 'About_Me.txt',
+    icon: User,
+    type: 'text',
+    content: `Hello! I am a Full Stack Developer.\n\nI build systems with React and Node.js.\n\nStatus: Online.`
+  },
+  {
+    id: 'projects',
+    title: 'My_Projects',
+    icon: Folder,
+    type: 'folder',
+    content: [
+      { id: 'p1', title: 'Portfolio OS', desc: 'React/Node Desktop Simulator', stack: 'React' },
+      { id: 'p2', title: 'E-Commerce API', desc: 'Scalable backend with Redis', stack: 'Node.js' }
+    ]
+  },
+  {
+    id: 'contact',
+    title: 'Contact.exe',
+    icon: Mail,
+    type: 'text',
+    content: `Email: me@example.com\nGitHub: github.com/me`
+  }
+];
 
-const Window = ({ id, title, content, type, children, onClose, zIndex, onFocus }) => {
+const Window = ({ app, onClose, isMinimized, zIndex, onFocus }) => {
+  const Icon = app.icon;
+
+  // 1. nodeRef is required for StrictMode in React 18+ to avoid warnings
+  const nodeRef = React.useRef(null);
+
   return (
-    <Draggable handle=".window-header" onMouseDown={onFocus}>
-      <div className="window" style={{ zIndex, top: '20%', left: '20%' }}>
-        <div className="window-header">
-          <span>{title}</span>
-          <button className="close-btn" onClick={() => onClose(id)}></button>
-        </div>
-        <div className="window-content">
-          {type === 'folder' ? (
-            <div className="folder-grid">
-              {children && children.map((proj) => (
-                <div key={proj.id} style={{ marginBottom: '15px', border: '1px solid #30363d', padding: '10px' }}>
-                  <h3>{proj.title}</h3>
-                  <p>{proj.description}</p>
-                  <div style={{ fontSize: '0.8em', color: '#58a6ff' }}>[{proj.stack.join(', ')}]</div>
-                  <a href={proj.link} target="_blank" style={{color: 'white', marginTop:'5px', display:'block'}}>Git Link_</a>
-                </div>
-              ))}
+    <Draggable
+      nodeRef={nodeRef}
+      handle=".window-header"
+      defaultPosition={{ x: 100, y: 50 }} // Safe coordinates
+      onMouseDown={onFocus}
+    >
+      <div 
+        ref={nodeRef} 
+        className="window-draggable" 
+        style={{ zIndex }}
+      >
+        {/* SEPARATE VISUAL LAYER to avoid transform conflicts */}
+        <div className={`window-visual ${isMinimized ? 'minimized' : ''}`}>
+          
+          <div className="window-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Icon size={18} color="#58a6ff" />
+              <span className="window-title">{app.title}</span>
             </div>
-          ) : (
-            <pre style={{ whiteSpace: 'pre-wrap' }}>{content}</pre>
-          )}
+            <button className="close-btn" onClick={(e) => { e.stopPropagation(); onClose(app.id); }} />
+          </div>
+
+          <div className="window-body">
+            {app.type === 'text' ? (
+               <div style={{ whiteSpace: 'pre-wrap' }}>{app.content}</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {app.content.map(p => (
+                  <div key={p.id} style={{ background: '#222', padding: '10px', borderRadius: '5px' }}>
+                    <div style={{ color: '#fff', fontWeight: 'bold' }}>{p.title}</div>
+                    <div style={{ color: '#888', fontSize: '0.9em' }}>{p.desc}</div>
+                    <div style={{ color: '#58a6ff', fontSize: '0.8em', marginTop: '5px' }}>{p.stack}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
     </Draggable>
   );
 };
 
-function App() {
-  const [items, setItems] = useState([]);
+export default function App() {
   const [windows, setWindows] = useState([]);
-  const [topZIndex, setTopZIndex] = useState(10);
-  const [booted, setBooted] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+  const [zIndex, setZIndex] = useState(100);
 
-  useEffect(() => {
-    // 1. Boot Sequence
-    setTimeout(() => setBooted(true), 2000); // Fake boot time
+  const handleDockClick = (app) => {
+    const existing = windows.find(w => w.id === app.id);
 
-    // 2. Fetch Desktop Items
-    axios.get('http://localhost:5000/api/desktop')
-      .then(res => setItems(res.data))
-      .catch(err => console.error(err));
-  }, []);
-
-  const openWindow = (item) => {
-    if (item.type === 'executable') {
-      window.location.href = item.action;
-      return;
+    if (existing) {
+      // If open & top & not minimized -> Minimize
+      if (activeId === app.id && !existing.minimized) {
+        setWindows(prev => prev.map(w => w.id === app.id ? { ...w, minimized: true } : w));
+        setActiveId(null);
+      } 
+      // Otherwise -> Restore & Focus
+      else {
+        setWindows(prev => prev.map(w => w.id === app.id ? { ...w, minimized: false, zIndex: zIndex + 1 } : w));
+        setZIndex(z => z + 1);
+        setActiveId(app.id);
+      }
+    } else {
+      // Open New
+      setWindows(prev => [...prev, { ...app, minimized: false, zIndex: zIndex + 1 }]);
+      setZIndex(z => z + 1);
+      setActiveId(app.id);
     }
-
-    // Check if already open
-    if (windows.find(w => w.id === item.id)) {
-      focusWindow(item.id);
-      return;
-    }
-
-    const newWindow = {
-      ...item,
-      zIndex: topZIndex + 1
-    };
-    
-    setTopZIndex(prev => prev + 1);
-    setWindows([...windows, newWindow]);
   };
 
   const closeWindow = (id) => {
-    setWindows(windows.filter(w => w.id !== id));
+    setWindows(prev => prev.filter(w => w.id !== id));
   };
-
-  const focusWindow = (id) => {
-    setWindows(windows.map(w => 
-      w.id === id ? { ...w, zIndex: topZIndex + 1 } : w
-    ));
-    setTopZIndex(prev => prev + 1);
-  };
-
-  if (!booted) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'black', color: '#58a6ff' }}>
-        <p>&gt; INITIALIZING KERNEL..._</p>
-      </div>
-    );
-  }
 
   return (
     <div className="screen">
-      <div className="desktop">
-        {items.map((item) => {
-          const IconComponent = IconMap[item.icon] || FileText;
-          return (
-            <div key={item.id} className="icon-wrapper" onDoubleClick={() => openWindow(item)}>
-              <IconComponent size={40} color="#58a6ff" />
-              <div className="icon-text">{item.title}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {windows.map((win) => (
+      
+      {/* WINDOW LAYER */}
+      {windows.map(win => (
         <Window 
           key={win.id} 
-          {...win} 
-          onClose={closeWindow} 
-          onFocus={() => focusWindow(win.id)}
+          app={win} 
+          isMinimized={win.minimized}
+          zIndex={win.zIndex}
+          onClose={closeWindow}
+          onFocus={() => {
+            setWindows(prev => prev.map(w => w.id === win.id ? { ...w, zIndex: zIndex + 1 } : w));
+            setZIndex(z => z + 1);
+            setActiveId(win.id);
+          }}
         />
       ))}
 
-      <div className="taskbar">
-        <button className="start-btn">START</button>
-        <span style={{ marginLeft: '15px', fontSize: '0.8rem', opacity: 0.7 }}>
-          {windows.length > 0 ? `${windows.length} Active Process(es)` : 'System Idle'}
-        </span>
-        <div style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>
-          {new Date().toLocaleTimeString()}
+      {/* TASKBAR LAYER */}
+      <div className="taskbar-container">
+        <div className="dock">
+          {APPS.map(app => {
+            const isOpen = windows.find(w => w.id === app.id);
+            return (
+              <div 
+                key={app.id} 
+                className="dock-icon" 
+                onClick={() => handleDockClick(app)}
+              >
+                <app.icon size={32} color={isOpen ? "#fff" : "#888"} />
+                {isOpen && <div className="active-dot" />}
+              </div>
+            );
+          })}
         </div>
       </div>
+
     </div>
   );
 }
-
-export default App;
